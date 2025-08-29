@@ -1,233 +1,217 @@
 #!/bin/bash
 
-# Script Installer Bot WhatsApp untuk Ubuntu 24
-# Author: Gemini
+# ==================================================================================
+# Skrip Instalasi Otomatis untuk Bot WhatsApp (botwa) & WAHA (WhatsApp API Host)
+#
+# Deskripsi:
+# Skrip ini mengotomatiskan seluruh proses penyiapan server untuk menjalankan
+# bot WhatsApp menggunakan repositori 'botwa' dan WAHA (WhatsApp API Host)
+# dalam sebuah kontainer Docker.
+#
+# Repositori Bot: https://github.com/srpcom/botwa
+# ==================================================================================
 
-# Pastikan hanya root atau user dengan sudo privileges yang bisa menjalankan script ini
-if [[ $EUID -ne 0 ]]; then
-   echo "Script ini memerlukan hak akses root (sudo)."
-   echo "Silakan jalankan dengan: sudo bash installer.sh"
-   exit 1
-fi
+# Hentikan skrip jika terjadi error
+set -e
 
-echo "Memulai instalasi bot WhatsApp..."
+# --- Variabel Konfigurasi ---
+GIT_REPO_URL="https://github.com/srpcom/botwa.git"
+REPO_DIR="botwa"
+PM2_APP_NAME="botwa"
+DOCKER_CONTAINER_NAME="waha-plus"
 
-# --- 1. Update dan Upgrade Sistem ---
-echo "Mengupdate dan mengupgrade paket sistem..."
-apt update -y
-apt upgrade -y
+# --- Variabel Warna untuk Output ---
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# --- 2. Instal Dependensi untuk Node.js ---
-echo "Menginstal dependensi yang diperlukan untuk Node.js..."
-apt install -y ca-certificates curl gnupg
-
-# --- 3. Tambahkan NodeSource APT Repository (untuk Node.js 20.x) ---
-echo "Menambahkan NodeSource APT repository untuk Node.js 20.x..."
-mkdir -p /etc/apt/keyrings
-# Unduh kunci GPG dan dearmor untuk NodeSource
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.run | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-# Tambahkan sumber repository Node.js
-echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list > /dev/null
-
-# Update daftar paket setelah menambahkan repository
-echo "Mengupdate daftar paket lagi..."
-apt update -y
-
-# --- 4. Instal Node.js dan npm ---
-echo "Menginstal Node.js dan npm..."
-apt install -y nodejs
-
-# --- 5. Instal Git ---
-echo "Menginstal Git..."
-apt install -y git
-
-# --- 6. Instal PM2 (Process Manager) ---
-echo "Menginstal PM2 secara global..."
-npm install -g pm2
-
-# --- 7. Buat Direktori Bot dan Masuk ke dalamnya ---
-BOT_DIR="/opt/whatsapp-bot"
-echo "Membuat direktori bot di $BOT_DIR..."
-mkdir -p $BOT_DIR
-cd $BOT_DIR || { echo "Gagal masuk ke direktori bot. Pastikan direktori dapat dibuat."; exit 1; }
-
-# --- 8. Membuat File placeholder untuk Bot (bot.js) ---
-echo "Membuat file placeholder untuk bot (bot.js)..."
-# Menggunakan 'EOF_BOT_JS' untuk mencegah ekspansi variabel di dalam sini
-cat << 'EOF_BOT_JS' > bot.js
-// bot.js - Kode Bot WhatsApp Placeholder
-// Anda bisa mengembangkan bot ini lebih lanjut sesuai kebutuhan.
-
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const fs = require('fs'); // Diperlukan untuk manajemen sesi
-
-// Inisialisasi klien WhatsApp
-// LocalAuth akan menyimpan sesi secara lokal di direktori .wwebjs_auth
-const client = new Client({
-    authStrategy: new LocalAuth({
-        clientId: 'whatsapp-bot' // ID unik untuk sesi bot ini
-    }),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'], // Penting untuk VPS tanpa tampilan GUI
-    }
-});
-
-// Event: Ketika QR Code dibutuhkan untuk autentikasi
-client.on('qr', qr => {
-    qrcode.generate(qr, { small: true });
-    console.log('Pindai QR Code ini dengan aplikasi WhatsApp Anda (Pengaturan > Perangkat Tertaut).');
-});
-
-// Event: Ketika bot siap digunakan
-client.on('ready', () => {
-    console.log('Klien WhatsApp sudah siap dan terhubung!');
-});
-
-// Event: Ketika autentikasi berhasil (sesi disimpan)
-client.on('authenticated', (session) => {
-    console.log('Autentikasi berhasil! Sesi telah disimpan.');
-    // whatsapp-web.js's LocalAuth secara otomatis menangani penyimpanan sesi.
-});
-
-// Event: Ketika autentikasi gagal
-client.on('auth_failure', msg => {
-    console.error('Autentikasi gagal!', msg);
-    console.error('Silakan hapus folder .wwebjs_auth di direktori bot dan restart bot.');
-});
-
-// Event: Ketika bot terputus dari WhatsApp
-client.on('disconnected', (reason) => {
-    console.log('Klien terputus!', reason);
-    // PM2 akan mencoba me-restart bot secara otomatis jika terputus
-});
-
-// Event: Ketika pesan baru diterima
-client.on('message', async msg => {
-    console.log(`Pesan diterima dari ${msg.from}: ${msg.body}`);
-
-    const chat = await msg.getChat();
-    const contact = await msg.getContact();
-    const isGroup = chat.isGroup;
-
-    // Abaikan pesan dari bot sendiri
-    if (msg.fromMe) return;
-
-    // --- Contoh Perintah Dasar ---
-    if (msg.body === '!ping') {
-        msg.reply('Pong!');
-    }
-
-    // --- FITUR GROUP ADMIN (Contoh Implementasi) ---
-    // Logika di bawah ini adalah contoh dan perlu diperluas/disempurnakan.
-    // Pastikan bot adalah admin di grup yang ingin Anda jaga agar fitur ini berfungsi.
-
-    if (isGroup) {
-        const groupAdmins = chat.participants.filter(p => p.isAdmin).map(p => p.id._serialized);
-        const isBotAdmin = groupAdmins.includes(client.info.wid._serialized);
-        const isSenderAdmin = groupAdmins.includes(contact.id._serialized);
-
-        // Jika bot bukan admin, sebagian besar fitur admin grup tidak akan berfungsi
-        if (!isBotAdmin) {
-            // console.log(`Bot bukan admin di grup: ${chat.name}. Beberapa fitur mungkin tidak berfungsi.`);
-            // msg.reply(`Maaf, saya perlu menjadi admin di grup ini untuk dapat menggunakan fitur penjaga grup.`);
-            return; // Keluar jika bot bukan admin
-        }
-
-        // Contoh: Anti-link untuk non-admin
-        // Regex yang lebih ketat untuk mendeteksi berbagai jenis tautan
-        const linkRegex = /(https?:\/\/[^\s]+|\bwww\.[^\s]+\b|\b\S+\.(com|org|net|id|co\.id|go\.id)\b)/gi;
-        if (msg.body.match(linkRegex) && !isSenderAdmin) {
-            console.log(`[GROUP SECURITY] Link terdeteksi dari non-admin: ${contact.pushname} - ${msg.body}`);
-            try {
-                await msg.delete(true); // Hapus pesan link
-                msg.reply(`@${contact.id.user} Link terdeteksi! Hanya admin yang diizinkan mengirim link di grup ini.`);
-            } catch (e) {
-                console.error('Gagal menghapus pesan atau membalas (anti-link):', e);
-                msg.reply(`Peringatan: Link terdeteksi dari @${contact.id.user}. Bot gagal menghapus pesan (izin?).`);
-            }
-        }
-
-        // Contoh: Perintah !kick (hanya admin grup yang bisa)
-        if (msg.body.startsWith('!kick') && isSenderAdmin) {
-            const mentioned = msg.mentionedIds;
-            if (mentioned.length > 0) {
-                try {
-                    await chat.removeParticipants(mentioned);
-                    msg.reply(`Berhasil mengeluarkan ${mentioned.length} anggota.`);
-                } catch (e) {
-                    console.error('Gagal mengeluarkan anggota (kick):', e);
-                    msg.reply('Gagal mengeluarkan anggota. Pastikan saya memiliki izin admin yang cukup.');
-                }
-            } else {
-                msg.reply('Sebutkan anggota yang ingin di-kick. Contoh: !kick @user');
-            }
-        }
-
-        // Contoh: Perintah !setwelcome [pesan] (hanya admin grup yang bisa)
-        if (msg.body.startsWith('!setwelcome ') && isSenderAdmin) {
-            const welcomeMessage = msg.body.substring('!setwelcome '.length).trim();
-            // Di sini Anda bisa menyimpan 'welcomeMessage' ke database atau file konfigurasi
-            msg.reply(`Pesan sambutan telah diatur menjadi: "${welcomeMessage}". (Ini contoh, Anda perlu mengimplementasikan penyimpanan).`);
-            console.log(`[GROUP SETTINGS] Pesan sambutan diatur oleh ${contact.pushname}: ${welcomeMessage}`);
-        }
-    }
-});
-
-// Event: Ketika anggota baru bergabung ke grup
-client.on('group_join', async (notification) => {
-    console.log('Anggota baru bergabung:', notification.id.participant);
-    const chat = await notification.getChat();
-    if (chat.isGroup) {
-        const newMemberContact = await client.getContactById(notification.id.participant);
-        // Anda dapat mengambil pesan sambutan yang telah diatur (misalnya dari database) di sini
-        const defaultWelcomeMessage = "Selamat datang di grup! Pastikan untuk membaca peraturan dan bersikap sopan.";
-        chat.sendMessage(`Halo @${newMemberContact.id.user}, ${defaultWelcomeMessage}`, {
-            mentions: [newMemberContact] // Tag anggota baru
-        });
-    }
-});
-
-// Mulai inisialisasi bot
-client.initialize();
-EOF_BOT_JS
-
-# --- 9. Membuat File package.json ---
-echo "Membuat file package.json..."
-cat << 'EOF_PACKAGE_JSON' > package.json
-{
-  "name": "whatsapp-bot",
-  "version": "1.0.0",
-  "description": "Bot WhatsApp Sederhana yang dapat dikembangkan",
-  "main": "bot.js",
-  "scripts": {
-    "start": "node bot.js"
-  },
-  "keywords": ["whatsapp-bot", "node.js", "whatsapp-web.js", "ubuntu"],
-  "author": "Your Name",
-  "license": "MIT",
-  "dependencies": {
-    "whatsapp-web.js": "^1.23.0",
-    "qrcode-terminal": "^0.12.0"
-  }
+# --- Fungsi Pembantu ---
+print_step() {
+    echo -e "\n${BLUE}=====================================================${NC}"
+    echo -e "${YELLOW}LANGKAH $1: $2${NC}"
+    echo -e "${BLUE}=====================================================${NC}"
 }
-EOF_PACKAGE_JSON
 
-# --- 10. Instal Dependensi Node.js Bot ---
-echo "Menginstal dependensi bot dari package.json..."
-npm install --prefix $BOT_DIR
+# --- Fungsi-fungsi Utama ---
 
-# --- 11. Memulai Bot dengan PM2 ---
-echo "Memulai bot dengan PM2..."
-pm2 start $BOT_DIR/bot.js --name "whatsapp-bot"
-pm2 save # Menyimpan konfigurasi PM2 agar bot otomatis restart saat VPS reboot
+check_distro() {
+    if ! command -v lsb_release &> /dev/null; then
+        echo -e "${YELLOW}Peringatan: Perintah 'lsb_release' tidak ditemukan. Tidak dapat memverifikasi distribusi Linux.${NC}"
+        echo "Skrip ini dioptimalkan untuk Ubuntu/Debian."
+        read -p "Lanjutkan instalasi? (y/n): " choice
+        if [[ "$choice" != "y" ]]; then
+            echo "Instalasi dibatalkan."
+            exit 1
+        fi
+    elif [[ "$(lsb_release -is)" != "Ubuntu" && "$(lsb_release -is)" != "Debian" ]]; then
+        echo -e "${YELLOW}Peringatan: Distribusi Anda ($(lsb_release -is)) bukan Ubuntu atau Debian.${NC}"
+        echo "Skrip mungkin tidak berjalan dengan sempurna."
+        read -p "Lanjutkan instalasi? (y/n): " choice
+        if [[ "$choice" != "y" ]]; then
+            echo "Instalasi dibatalkan."
+            exit 1
+        fi
+    fi
+}
 
-echo "Instalasi selesai!"
-echo "---------------------------------------------------------"
-echo "Silakan lihat file readme.txt untuk petunjuk penggunaan selanjutnya."
-echo "Anda bisa mengaksesnya di: /opt/whatsapp-bot/readme.txt setelah Anda menyalinnya ke VPS."
-echo "Untuk melihat status bot: pm2 status"
-echo "Untuk melihat log bot: pm2 logs whatsapp-bot --lines 50"
-echo "Jika QR code tidak muncul atau bot tidak berjalan, pastikan Anda melihat log!"
-echo "---------------------------------------------------------"
+update_system() {
+    print_step 1 "Memperbarui daftar paket sistem"
+    sudo apt-get update
+    sudo apt-get upgrade -y
+}
 
+install_dependencies() {
+    print_step 2 "Menginstall dependensi dasar (git, curl, wget)"
+    sudo apt-get install -y git curl wget
+}
+
+install_docker() {
+    print_step 3 "Menginstall Docker dan Docker Compose"
+    if command -v docker &> /dev/null; then
+        echo -e "${GREEN}Docker sudah terinstall. Melewati langkah ini.${NC}"
+    else
+        echo "Mengunduh dan menjalankan skrip instalasi resmi Docker..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        rm get-docker.sh
+    fi
+    
+    echo "Mengonfigurasi Docker agar berjalan tanpa 'sudo'..."
+    sudo usermod -aG docker ${USER}
+    echo -e "${GREEN}Konfigurasi Docker selesai. Anda perlu logout dan login kembali agar perubahan ini sepenuhnya aktif.${NC}"
+}
+
+install_node_nvm() {
+    print_step 4 "Menginstall Node.js v20 melalui NVM (Node Version Manager)"
+    # Install NVM
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    
+    # Source NVM untuk sesi saat ini
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    
+    # Install dan gunakan Node.js v20
+    nvm install 20
+    nvm use 20
+    nvm alias default 20
+    echo -e "${GREEN}Node.js v$(node -v) dan npm v$(npm -v) berhasil diinstall.${NC}"
+}
+
+install_pm2() {
+    print_step 5 "Menginstall PM2 (Process Manager) secara global"
+    npm install pm2 -g
+    echo -e "${GREEN}PM2 berhasil diinstall.${NC}"
+}
+
+setup_bot() {
+    print_step 6 "Mengunduh dan menyiapkan kode bot dari GitHub"
+    # Hapus direktori lama jika ada untuk instalasi baru
+    if [ -d "$HOME/$REPO_DIR" ]; then
+        echo -e "${YELLOW}Direktori '$REPO_DIR' sudah ada. Menghapusnya...${NC}"
+        rm -rf "$HOME/$REPO_DIR"
+    fi
+    
+    git clone $GIT_REPO_URL "$HOME/$REPO_DIR"
+    cd "$HOME/$REPO_DIR"
+    
+    echo "Menginstall dependensi Node.js untuk bot..."
+    npm install
+    echo -e "${GREEN}Setup bot selesai.${NC}"
+}
+
+setup_waha() {
+    print_step 7 "Membuat file docker-compose.yml dan menjalankan WAHA"
+    cd "$HOME/$REPO_DIR"
+    
+    # Buat file docker-compose.yml
+    cat <<EOF > docker-compose.yml
+version: '3.8'
+services:
+  waha:
+    image: devlikeapro/waha-plus:latest
+    container_name: ${DOCKER_CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./waha-sessions:/usr/src/app/sessions
+    environment:
+      # Konfigurasi dasar, lihat dokumentasi WAHA untuk opsi lainnya
+      - WHA_LOG_LEVEL=info
+EOF
+
+    echo "Menjalankan kontainer WAHA dengan Docker Compose..."
+    # Gunakan sudo karena grup docker mungkin belum aktif untuk user saat ini
+    sudo docker compose up -d
+    echo -e "${GREEN}Kontainer WAHA berhasil dijalankan.${NC}"
+}
+
+start_services() {
+    print_step 8 "Menjalankan bot dengan PM2 dan mengaturnya untuk startup"
+    cd "$HOME/$REPO_DIR"
+    
+    # Jalankan bot dengan PM2. File utamanya adalah index.js
+    pm2 start index.js --name "$PM2_APP_NAME"
+    
+    # Konfigurasi PM2 untuk berjalan saat boot
+    echo "Mengonfigurasi PM2 startup script..."
+    # Dapatkan path nvm dan node untuk digunakan oleh user root
+    NVM_NODE_PATH=$(which node)
+    PM2_PATH=$(which pm2)
+    
+    # Jalankan perintah startup yang dihasilkan oleh pm2
+    STARTUP_CMD=$(pm2 startup | tail -n 1)
+    if [[ -n "$STARTUP_CMD" ]]; then
+        echo "Menjalankan perintah berikut dengan sudo:"
+        echo "$STARTUP_CMD"
+        # Menjalankan perintah startup dengan path yang benar
+        sudo env PATH=$PATH:$NVM_DIR/versions/node/$(nvm version)/bin $STARTUP_CMD
+    else
+        echo -e "${YELLOW}Tidak dapat mengonfigurasi PM2 startup secara otomatis.${NC}"
+    fi
+
+    pm2 save
+    echo -e "${GREEN}Bot telah dijalankan dengan PM2.${NC}"
+}
+
+show_summary() {
+    # Dapatkan IP Publik server
+    PUBLIC_IP=$(curl -s ifconfig.me)
+
+    echo -e "\n${GREEN}=====================================================${NC}"
+    echo -e "${GREEN}         🎉 INSTALASI SELESAI! 🎉                  ${NC}"
+    echo -e "${GREEN}=====================================================${NC}"
+    echo -e "\n${YELLOW}Langkah Selanjutnya:${NC}"
+    echo -e "1. Buka browser dan akses URL Swagger UI WAHA:"
+    echo -e "   ${GREEN}http://${PUBLIC_IP}:3000${NC}"
+    echo -e "2. Gunakan endpoint untuk membuat sesi baru dan pindai QR code."
+    echo -e "3. Setelah terhubung, bot Anda akan aktif dan siap menerima perintah."
+    echo -e "\n${YELLOW}Perintah Penting:${NC}"
+    echo -e "- Melihat log bot:             ${GREEN}pm2 logs ${PM2_APP_NAME}${NC}"
+    echo -e "- Merestart bot:               ${GREEN}pm2 restart ${PM2_APP_NAME}${NC}"
+    echo -e "- Melihat status kontainer WAHA: ${GREEN}sudo docker ps${NC}"
+    echo -e "- Melihat log kontainer WAHA:    ${GREEN}sudo docker logs ${DOCKER_CONTAINER_NAME}${NC}"
+    echo -e "\n${YELLOW}Catatan:${NC} Jika Anda mendapatkan error 'permission denied' saat menjalankan perintah 'docker' tanpa 'sudo', silakan logout dan login kembali ke server Anda."
+}
+
+
+# --- Eksekusi Skrip ---
+main() {
+    echo -e "${GREEN}=====================================================${NC}"
+    echo -e "${YELLOW} Memulai Instalasi Otomatis Bot WhatsApp & WAHA ${NC}"
+    echo -e "${GREEN}=====================================================${NC}"
+    
+    check_distro
+    update_system
+    install_dependencies
+    install_docker
+    install_node_nvm
+    install_pm2
+    setup_bot
+    setup_waha
+    start_services
+    show_summary
+}
+
+main
