@@ -115,8 +115,9 @@ setup_bot() {
     git clone $GIT_REPO_URL "$HOME/$REPO_DIR"
     cd "$HOME/$REPO_DIR"
     
-    echo "Menginstall dependensi Node.js untuk bot..."
-    npm install
+    echo "Menginstall dependensi Node.js untuk bot (express, axios)..."
+    # PERBAIKAN: Langsung install paket yang dibutuhkan karena tidak ada package.json
+    npm install express axios
     echo -e "${GREEN}Setup bot selesai.${NC}"
 }
 
@@ -215,3 +216,4 @@ main() {
 }
 
 main
+
