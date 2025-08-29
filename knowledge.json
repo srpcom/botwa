@@ -1,0 +1,39 @@
+[
+  {
+    "keywords": [
+      "halo",
+      "hai",
+      "pagi",
+      "siang",
+      "sore",
+      "malam"
+    ],
+    "reply": "Halo {nama}! Ada yang bisa saya bantu?"
+  },
+  {
+    "keywords": [
+      "harga",
+      "berapa",
+      "price",
+      "biaya"
+    ],
+    "reply": "Harga produk kami mulai dari Rp 50.000."
+  },
+  {
+    "keywords": [
+      "lokasi",
+      "alamat",
+      "tempat",
+      "dimana"
+    ],
+    "reply": "Kantor pusat kami berlokasi di Jl. Merdeka No. 123, Jakarta."
+  },
+  {
+    "keywords": [
+      "terima kasih",
+      "makasih",
+      "thanks"
+    ],
+    "reply": "Sama-sama, {nama}! Senang bisa membantu."
+  }
+]
